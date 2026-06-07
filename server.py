@@ -9,14 +9,18 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 
 # -------- CONFIG --------
+TIMEOUT = 60
+THIRTY_DAYS = 30 * 24 * 60 * 60
+
 SHEET_ID = "1nDkL93epR1RQfFvCrzAVeiu5a9TpaU2484sOaVkQAQw"
 
-# 7th tab = index 6
-WORKSHEET_INDEX = 6
-
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+# Change this tab index if needed
+# 4 means 5th tab
+WORKSHEET_INDEX = 4
 
 # -------- GOOGLE SHEETS AUTH --------
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
 creds_json = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
 creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
 client = gspread.authorize(creds)
@@ -24,7 +28,7 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key(SHEET_ID).get_worksheet(WORKSHEET_INDEX)
 
 # -------- MEMORY --------
-# Key = USER INFO
+# Key = USER INFO, so same user overwrites same row
 clients = {}
 
 
@@ -33,12 +37,7 @@ def now_ist():
 
 
 def ensure_header():
-    header = [
-        "DEVICE NAME",
-        "USER INFO",
-        "LOGIN",
-        "LAST SEEN"
-    ]
+    header = ["DEVISE NAME", "USER INFO", "LOGIN", "LOGOUT"]
 
     values = sheet.get_all_values()
 
@@ -48,13 +47,109 @@ def ensure_header():
         sheet.update("A1:D1", [header])
 
 
+def format_dashboard():
+    try:
+        worksheet_id = sheet.id
+
+        requests = [
+            # Header green background, white bold text
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 4
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {
+                                "red": 0.0,
+                                "green": 0.6,
+                                "blue": 0.2
+                            },
+                            "horizontalAlignment": "CENTER",
+                            "verticalAlignment": "MIDDLE",
+                            "textFormat": {
+                                "foregroundColor": {
+                                    "red": 1.0,
+                                    "green": 1.0,
+                                    "blue": 1.0
+                                },
+                                "bold": True
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)"
+                }
+            },
+
+            # Center data A:D
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_id,
+                        "startRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 4
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": "CENTER",
+                            "verticalAlignment": "MIDDLE"
+                        }
+                    },
+                    "fields": "userEnteredFormat(horizontalAlignment,verticalAlignment)"
+                }
+            },
+
+            # Borders A:D
+            {
+                "updateBorders": {
+                    "range": {
+                        "sheetId": worksheet_id,
+                        "startRowIndex": 0,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 4
+                    },
+                    "top": {"style": "SOLID", "width": 1},
+                    "bottom": {"style": "SOLID", "width": 1},
+                    "left": {"style": "SOLID", "width": 1},
+                    "right": {"style": "SOLID", "width": 1},
+                    "innerHorizontal": {"style": "SOLID", "width": 1},
+                    "innerVertical": {"style": "SOLID", "width": 1}
+                }
+            },
+
+            # Auto resize columns A:D
+            {
+                "autoResizeDimensions": {
+                    "dimensions": {
+                        "sheetId": worksheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": 0,
+                        "endIndex": 4
+                    }
+                }
+            }
+        ]
+
+        sheet.spreadsheet.batch_update({"requests": requests})
+
+    except Exception as e:
+        print("Format error:", e)
+
+
+# -------- LOAD --------
 def load_from_sheet():
     global clients
-    clients = {}
 
     try:
         ensure_header()
         rows = sheet.get_all_records()
+
+        clients = {}
 
         for row in rows:
             user_info = row.get("USER INFO", "")
@@ -62,9 +157,9 @@ def load_from_sheet():
                 continue
 
             clients[user_info] = {
-                "device": row.get("DEVICE NAME", ""),
+                "device": row.get("DEVISE NAME", ""),
                 "login_time": row.get("LOGIN", ""),
-                "last_seen": row.get("LAST SEEN", "")
+                "last_seen": row.get("LOGOUT", "")
             }
 
     except Exception as e:
@@ -72,13 +167,14 @@ def load_from_sheet():
         clients = {}
 
 
+# -------- SAVE --------
 def save_to_sheet():
     try:
         ensure_header()
 
         rows = sheet.get_all_records()
 
-        # Find row by USER INFO, not DEVICE NAME
+        # Same USER INFO = same row overwrite
         row_map = {
             row.get("USER INFO", ""): idx + 2
             for idx, row in enumerate(rows)
@@ -99,11 +195,13 @@ def save_to_sheet():
             else:
                 sheet.append_row(row_data)
 
+        format_dashboard()
+
     except Exception as e:
         print("Save error:", e)
 
 
-# -------- LOAD EXISTING SHEET DATA --------
+# -------- LOAD EXISTING --------
 load_from_sheet()
 
 
@@ -145,7 +243,7 @@ def get_clients():
     return jsonify(clients)
 
 
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
     return "Server running"
 
