@@ -11,7 +11,7 @@ app = Flask(__name__)
 # -------- CONFIG --------
 SHEET_ID = "1nDkL93epR1RQfFvCrzAVeiu5a9TpaU2484sOaVkQAQw"
 
-# 7th tab = index 6 because gspread starts from 0
+# 7th tab = index 6
 WORKSHEET_INDEX = 6
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -24,11 +24,11 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key(SHEET_ID).get_worksheet(WORKSHEET_INDEX)
 
 # -------- MEMORY --------
+# Key = USER INFO
 clients = {}
 
 
 def now_ist():
-    # Clean time format for Google Sheet
     return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %H:%M:%S")
 
 
@@ -57,12 +57,12 @@ def load_from_sheet():
         rows = sheet.get_all_records()
 
         for row in rows:
-            device = row.get("DEVICE NAME", "")
-            if not device:
+            user_info = row.get("USER INFO", "")
+            if not user_info:
                 continue
 
-            clients[device] = {
-                "name": row.get("USER INFO", ""),
+            clients[user_info] = {
+                "device": row.get("DEVICE NAME", ""),
                 "login_time": row.get("LOGIN", ""),
                 "last_seen": row.get("LAST SEEN", "")
             }
@@ -77,21 +77,24 @@ def save_to_sheet():
         ensure_header()
 
         rows = sheet.get_all_records()
+
+        # Find row by USER INFO, not DEVICE NAME
         row_map = {
-            row.get("DEVICE NAME", ""): idx + 2
+            row.get("USER INFO", ""): idx + 2
             for idx, row in enumerate(rows)
+            if row.get("USER INFO", "")
         }
 
-        for device, info in clients.items():
+        for user_info, info in clients.items():
             row_data = [
-                device,
-                info.get("name", ""),
+                info.get("device", ""),
+                user_info,
                 info.get("login_time", ""),
                 info.get("last_seen", "")
             ]
 
-            if device in row_map:
-                row_no = row_map[device]
+            if user_info in row_map:
+                row_no = row_map[user_info]
                 sheet.update(f"A{row_no}:D{row_no}", [row_data])
             else:
                 sheet.append_row(row_data)
@@ -115,15 +118,16 @@ def heartbeat():
 
     now = now_ist()
 
-    if device not in clients or event == "opened":
-        clients[device] = {
-            "name": name,
+    # Same USER INFO will overwrite same row
+    if name not in clients or event == "opened":
+        clients[name] = {
+            "device": device,
             "login_time": now,
             "last_seen": now
         }
     else:
-        clients[device]["name"] = name
-        clients[device]["last_seen"] = now
+        clients[name]["device"] = device
+        clients[name]["last_seen"] = now
 
     save_to_sheet()
 
