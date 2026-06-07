@@ -9,18 +9,15 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 
 # -------- CONFIG --------
-TIMEOUT = 60
-THIRTY_DAYS = 30 * 24 * 60 * 60
-
 SHEET_ID = "1nDkL93epR1RQfFvCrzAVeiu5a9TpaU2484sOaVkQAQw"
 
-# Change this tab index if needed
-# 4 means 5th tab
-WORKSHEET_INDEX = 4
+# Change tab index if needed
+# 6 = 7th tab, 4 = 5th tab
+WORKSHEET_INDEX = 6
 
-# -------- GOOGLE SHEETS AUTH --------
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
+# -------- GOOGLE SHEETS AUTH --------
 creds_json = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
 creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
 client = gspread.authorize(creds)
@@ -28,16 +25,17 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key(SHEET_ID).get_worksheet(WORKSHEET_INDEX)
 
 # -------- MEMORY --------
-# Key = USER INFO, so same user overwrites same row
+# Key = DEVICE NAME
 clients = {}
 
 
 def now_ist():
+    # Clean date/time format
     return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %H:%M:%S")
 
 
 def ensure_header():
-    header = ["DEVISE NAME", "USER INFO", "LOGIN", "LOGOUT"]
+    header = ["DEVICE NAME", "USER INFO", "LOGIN", "LAST SEEN"]
 
     values = sheet.get_all_values()
 
@@ -47,119 +45,23 @@ def ensure_header():
         sheet.update("A1:D1", [header])
 
 
-def format_dashboard():
-    try:
-        worksheet_id = sheet.id
-
-        requests = [
-            # Header green background, white bold text
-            {
-                "repeatCell": {
-                    "range": {
-                        "sheetId": worksheet_id,
-                        "startRowIndex": 0,
-                        "endRowIndex": 1,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": 4
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {
-                                "red": 0.0,
-                                "green": 0.6,
-                                "blue": 0.2
-                            },
-                            "horizontalAlignment": "CENTER",
-                            "verticalAlignment": "MIDDLE",
-                            "textFormat": {
-                                "foregroundColor": {
-                                    "red": 1.0,
-                                    "green": 1.0,
-                                    "blue": 1.0
-                                },
-                                "bold": True
-                            }
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)"
-                }
-            },
-
-            # Center data A:D
-            {
-                "repeatCell": {
-                    "range": {
-                        "sheetId": worksheet_id,
-                        "startRowIndex": 1,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": 4
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "horizontalAlignment": "CENTER",
-                            "verticalAlignment": "MIDDLE"
-                        }
-                    },
-                    "fields": "userEnteredFormat(horizontalAlignment,verticalAlignment)"
-                }
-            },
-
-            # Borders A:D
-            {
-                "updateBorders": {
-                    "range": {
-                        "sheetId": worksheet_id,
-                        "startRowIndex": 0,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": 4
-                    },
-                    "top": {"style": "SOLID", "width": 1},
-                    "bottom": {"style": "SOLID", "width": 1},
-                    "left": {"style": "SOLID", "width": 1},
-                    "right": {"style": "SOLID", "width": 1},
-                    "innerHorizontal": {"style": "SOLID", "width": 1},
-                    "innerVertical": {"style": "SOLID", "width": 1}
-                }
-            },
-
-            # Auto resize columns A:D
-            {
-                "autoResizeDimensions": {
-                    "dimensions": {
-                        "sheetId": worksheet_id,
-                        "dimension": "COLUMNS",
-                        "startIndex": 0,
-                        "endIndex": 4
-                    }
-                }
-            }
-        ]
-
-        sheet.spreadsheet.batch_update({"requests": requests})
-
-    except Exception as e:
-        print("Format error:", e)
-
-
-# -------- LOAD --------
 def load_from_sheet():
     global clients
+    clients = {}
 
     try:
         ensure_header()
         rows = sheet.get_all_records()
 
-        clients = {}
-
         for row in rows:
-            user_info = row.get("USER INFO", "")
-            if not user_info:
+            device = row.get("DEVICE NAME", "")
+            if not device:
                 continue
 
-            clients[user_info] = {
-                "device": row.get("DEVISE NAME", ""),
+            clients[device] = {
+                "name": row.get("USER INFO", ""),
                 "login_time": row.get("LOGIN", ""),
-                "last_seen": row.get("LOGOUT", "")
+                "last_seen": row.get("LAST SEEN", "")
             }
 
     except Exception as e:
@@ -167,45 +69,41 @@ def load_from_sheet():
         clients = {}
 
 
-# -------- SAVE --------
 def save_to_sheet():
     try:
         ensure_header()
 
         rows = sheet.get_all_records()
 
-        # Same USER INFO = same row overwrite
+        # Same DEVICE NAME = same row overwrite
         row_map = {
-            row.get("USER INFO", ""): idx + 2
+            row.get("DEVICE NAME", ""): idx + 2
             for idx, row in enumerate(rows)
-            if row.get("USER INFO", "")
+            if row.get("DEVICE NAME", "")
         }
 
-        for user_info, info in clients.items():
+        for device, info in clients.items():
             row_data = [
-                info.get("device", ""),
-                user_info,
+                device,
+                info.get("name", ""),
                 info.get("login_time", ""),
                 info.get("last_seen", "")
             ]
 
-            if user_info in row_map:
-                row_no = row_map[user_info]
+            if device in row_map:
+                row_no = row_map[device]
                 sheet.update(f"A{row_no}:D{row_no}", [row_data])
             else:
                 sheet.append_row(row_data)
-
-        format_dashboard()
 
     except Exception as e:
         print("Save error:", e)
 
 
-# -------- LOAD EXISTING --------
+# -------- LOAD EXISTING SHEET DATA --------
 load_from_sheet()
 
 
-# -------- ROUTES --------
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
     data = request.json or {}
@@ -216,16 +114,16 @@ def heartbeat():
 
     now = now_ist()
 
-    # Same USER INFO will overwrite same row
-    if name not in clients or event == "opened":
-        clients[name] = {
-            "device": device,
+    # Same DEVICE NAME will overwrite same row
+    if device not in clients or event == "opened":
+        clients[device] = {
+            "name": name,
             "login_time": now,
             "last_seen": now
         }
     else:
-        clients[name]["device"] = device
-        clients[name]["last_seen"] = now
+        clients[device]["name"] = name
+        clients[device]["last_seen"] = now
 
     save_to_sheet()
 
@@ -243,7 +141,7 @@ def get_clients():
     return jsonify(clients)
 
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
     return "Server running"
 
