@@ -35,20 +35,17 @@ def ensure_header():
     header = [
         "DEVISE NAME",
         "USER INFO",
-        "APP",
-        "VERSION",
-        "PLATFORM",
         "LOGIN",
-        "LAST SEEN",
-        "LAST EVENT"
+        "LAST SEEN"
     ]
 
     values = sheet.get_all_values()
 
     if not values:
         sheet.append_row(header)
-    elif values[0] != header:
-        sheet.update("A1:H1", [header])
+    else:
+        # Force only first 4 headers
+        sheet.update("A1:D1", [header])
 
 
 def load_from_sheet():
@@ -66,12 +63,8 @@ def load_from_sheet():
 
             clients[device] = {
                 "name": row.get("USER INFO", ""),
-                "app": row.get("APP", ""),
-                "version": row.get("VERSION", ""),
-                "platform": row.get("PLATFORM", ""),
                 "login_time": row.get("LOGIN", ""),
-                "last_seen": row.get("LAST SEEN", ""),
-                "last_event": row.get("LAST EVENT", "")
+                "last_seen": row.get("LAST SEEN", "")
             }
 
     except Exception as e:
@@ -93,17 +86,13 @@ def save_to_sheet():
             row_data = [
                 device,
                 info.get("name", ""),
-                info.get("app", ""),
-                info.get("version", ""),
-                info.get("platform", ""),
                 info.get("login_time", ""),
-                info.get("last_seen", ""),
-                info.get("last_event", "")
+                info.get("last_seen", "")
             ]
 
             if device in row_map:
                 row_no = row_map[device]
-                sheet.update(f"A{row_no}:H{row_no}", [row_data])
+                sheet.update(f"A{row_no}:D{row_no}", [row_data])
             else:
                 sheet.append_row(row_data)
 
@@ -122,9 +111,6 @@ def heartbeat():
 
     device = data.get("device", "unknown")
     name = data.get("name", device)
-    app_name = data.get("app", "CAN Logger")
-    version = data.get("version", "")
-    platform_name = data.get("platform", "")
     event = data.get("event", "heartbeat")
 
     now = now_ist()
@@ -132,20 +118,12 @@ def heartbeat():
     if device not in clients or event == "opened":
         clients[device] = {
             "name": name,
-            "app": app_name,
-            "version": version,
-            "platform": platform_name,
             "login_time": now,
-            "last_seen": now,
-            "last_event": event
+            "last_seen": now
         }
     else:
         clients[device]["name"] = name
-        clients[device]["app"] = app_name
-        clients[device]["version"] = version
-        clients[device]["platform"] = platform_name
         clients[device]["last_seen"] = now
-        clients[device]["last_event"] = event
 
     save_to_sheet()
 
