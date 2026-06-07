@@ -11,7 +11,6 @@ app = Flask(__name__)
 # -------- CONFIG --------
 SHEET_ID = "1nDkL93epR1RQfFvCrzAVeiu5a9TpaU2484sOaVkQAQw"
 
-# Change tab index if needed
 # 6 = 7th tab, 4 = 5th tab
 WORKSHEET_INDEX = 6
 
@@ -25,24 +24,12 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key(SHEET_ID).get_worksheet(WORKSHEET_INDEX)
 
 # -------- MEMORY --------
-# Key = DEVICE NAME
+# Key = USER INFO
 clients = {}
 
 
 def now_ist():
-    # Clean date/time format
     return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %H:%M:%S")
-
-
-def ensure_header():
-    header = ["DEVICE NAME", "USER INFO", "LOGIN", "LAST SEEN"]
-
-    values = sheet.get_all_values()
-
-    if not values:
-        sheet.append_row(header)
-    else:
-        sheet.update("A1:D1", [header])
 
 
 def load_from_sheet():
@@ -50,18 +37,25 @@ def load_from_sheet():
     clients = {}
 
     try:
-        ensure_header()
-        rows = sheet.get_all_records()
+        # Start reading from row 2, header row untouched
+        rows = sheet.get_all_values()
 
-        for row in rows:
-            device = row.get("DEVICE NAME", "")
-            if not device:
+        for row in rows[1:]:
+            if len(row) < 4:
                 continue
 
-            clients[device] = {
-                "name": row.get("USER INFO", ""),
-                "login_time": row.get("LOGIN", ""),
-                "last_seen": row.get("LAST SEEN", "")
+            device = row[0].strip()
+            user_info = row[1].strip()
+            login_time = row[2].strip()
+            last_seen = row[3].strip()
+
+            if not user_info:
+                continue
+
+            clients[user_info] = {
+                "device": device,
+                "login_time": login_time,
+                "last_seen": last_seen
             }
 
     except Exception as e:
@@ -71,27 +65,28 @@ def load_from_sheet():
 
 def save_to_sheet():
     try:
-        ensure_header()
+        # Read all rows, but do not touch row 1
+        rows = sheet.get_all_values()
 
-        rows = sheet.get_all_records()
+        # Map USER INFO from column B to sheet row number
+        row_map = {}
 
-        # Same DEVICE NAME = same row overwrite
-        row_map = {
-            row.get("DEVICE NAME", ""): idx + 2
-            for idx, row in enumerate(rows)
-            if row.get("DEVICE NAME", "")
-        }
+        for idx, row in enumerate(rows[1:], start=2):
+            if len(row) >= 2:
+                user_info = row[1].strip()
+                if user_info:
+                    row_map[user_info] = idx
 
-        for device, info in clients.items():
+        for user_info, info in clients.items():
             row_data = [
-                device,
-                info.get("name", ""),
+                info.get("device", ""),
+                user_info,
                 info.get("login_time", ""),
                 info.get("last_seen", "")
             ]
 
-            if device in row_map:
-                row_no = row_map[device]
+            if user_info in row_map:
+                row_no = row_map[user_info]
                 sheet.update(f"A{row_no}:D{row_no}", [row_data])
             else:
                 sheet.append_row(row_data)
@@ -114,16 +109,16 @@ def heartbeat():
 
     now = now_ist()
 
-    # Same DEVICE NAME will overwrite same row
-    if device not in clients or event == "opened":
-        clients[device] = {
-            "name": name,
+    # Same USER INFO = overwrite same row
+    if name not in clients or event == "opened":
+        clients[name] = {
+            "device": device,
             "login_time": now,
             "last_seen": now
         }
     else:
-        clients[device]["name"] = name
-        clients[device]["last_seen"] = now
+        clients[name]["device"] = device
+        clients[name]["last_seen"] = now
 
     save_to_sheet()
 
