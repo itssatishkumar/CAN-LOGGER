@@ -28,12 +28,13 @@ clients = {}
 
 
 def now_ist():
-    return datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+    # Clean time format for Google Sheet
+    return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %H:%M:%S")
 
 
 def ensure_header():
     header = [
-        "DEVISE NAME",
+        "DEVICE NAME",
         "USER INFO",
         "LOGIN",
         "LAST SEEN"
@@ -44,7 +45,6 @@ def ensure_header():
     if not values:
         sheet.append_row(header)
     else:
-        # Force only first 4 headers
         sheet.update("A1:D1", [header])
 
 
@@ -57,7 +57,7 @@ def load_from_sheet():
         rows = sheet.get_all_records()
 
         for row in rows:
-            device = row.get("DEVISE NAME", "")
+            device = row.get("DEVICE NAME", "")
             if not device:
                 continue
 
@@ -78,7 +78,7 @@ def save_to_sheet():
 
         rows = sheet.get_all_records()
         row_map = {
-            row.get("DEVISE NAME", ""): idx + 2
+            row.get("DEVICE NAME", ""): idx + 2
             for idx, row in enumerate(rows)
         }
 
@@ -130,6 +130,7 @@ def heartbeat():
     return jsonify({
         "ok": True,
         "device": device,
+        "name": name,
         "event": event,
         "time": now
     })
@@ -140,7 +141,7 @@ def get_clients():
     return jsonify(clients)
 
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
     return "Server running"
 
