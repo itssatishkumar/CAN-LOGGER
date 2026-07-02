@@ -112,7 +112,7 @@ def save_to_sheet():
 
 def update_snapshot_panel(user_info):
     try:
-        image_url = _snapshot_url(user_info)
+        image_url = f"{_snapshot_url(user_info)}?t={quote(now_ist(), safe='')}"
         escaped_url = image_url.replace('"', '""')
         sheet.update(SNAPSHOT_FORMULA_CELL, [[f'=IMAGE("{escaped_url}", 1)']], value_input_option="USER_ENTERED")
         sheet.update("A33:E33", [["Device", "User Info", "Login Time", "Last Seen", "Last Snapshot"]])
