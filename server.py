@@ -45,7 +45,7 @@ def _public_base_url():
 
 
 def _snapshot_url(user_info):
-    return f"{_public_base_url()}/snapshot/{quote(user_info, safe='')}.jpg"
+    return f"{_public_base_url()}/snapshot/{quote(user_info, safe='')}.png"
 
 
 def load_from_sheet():
@@ -114,7 +114,7 @@ def update_snapshot_panel(user_info):
     try:
         image_url = f"{_snapshot_url(user_info)}?t={quote(now_ist(), safe='')}"
         escaped_url = image_url.replace('"', '""')
-        sheet.update(SNAPSHOT_FORMULA_CELL, [[f'=IMAGE("{escaped_url}", 1)']], value_input_option="USER_ENTERED")
+        sheet.update(SNAPSHOT_FORMULA_CELL, [[f'=IMAGE("{escaped_url}", 3)']], value_input_option="USER_ENTERED")
         sheet.update("A32", [[image_url]])
         sheet.update("A33:E33", [["Device", "User Info", "Login Time", "Last Seen", "Last Snapshot"]])
     except Exception as e:
@@ -163,9 +163,9 @@ def receive_snapshot():
 
     device = data.get("device", "unknown")
     name = data.get("name", device)
-    encoded = data.get("image_jpg_base64", "")
+    encoded = data.get("image_png_base64") or data.get("image_jpg_base64", "")
     if not encoded:
-        return jsonify({"ok": False, "error": "missing image_jpg_base64"}), 400
+        return jsonify({"ok": False, "error": "missing image_png_base64"}), 400
 
     try:
         image_bytes = base64.b64decode(encoded, validate=True)
@@ -177,6 +177,7 @@ def receive_snapshot():
         "device": device,
         "updated_at": now,
         "image": image_bytes,
+        "mime_type": "image/png" if data.get("image_png_base64") else "image/jpeg",
         "width": data.get("image_width", ""),
         "height": data.get("image_height", ""),
     }
@@ -205,13 +206,14 @@ def receive_snapshot():
     })
 
 
+@app.route("/snapshot/<path:user_info>.png", methods=["GET"])
 @app.route("/snapshot/<path:user_info>.jpg", methods=["GET"])
 def get_snapshot(user_info):
     snapshot = snapshots.get(user_info)
     if not snapshot:
         return Response("No snapshot yet", status=404)
 
-    response = Response(snapshot["image"], mimetype="image/jpeg")
+    response = Response(snapshot["image"], mimetype=snapshot.get("mime_type", "image/png"))
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
