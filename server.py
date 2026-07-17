@@ -3,41 +3,63 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
 import json
+
 import gspread
 from google.oauth2.service_account import Credentials
 
+
 app = Flask(__name__)
 
+
 # -------- CONFIG --------
+
 SHEET_ID = "1nDkL93epR1RQfFvCrzAVeiu5a9TpaU2484sOaVkQAQw"
 
-# 6 = 7th tab, 4 = 5th tab
+# 6 = seventh worksheet tab
 WORKSHEET_INDEX = 6
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets"
+]
+
 
 # -------- GOOGLE SHEETS AUTH --------
-creds_json = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
-creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
+
+creds_json = json.loads(
+    os.environ["GOOGLE_SERVICE_ACCOUNT"]
+)
+
+creds = Credentials.from_service_account_info(
+    creds_json,
+    scopes=SCOPES
+)
+
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key(SHEET_ID).get_worksheet(WORKSHEET_INDEX)
+sheet = client.open_by_key(
+    SHEET_ID
+).get_worksheet(WORKSHEET_INDEX)
+
 
 # -------- MEMORY --------
 # Key = USER INFO
+
 clients = {}
 
 
 def now_ist():
-    return datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %H:%M:%S")
+    return datetime.now(
+        ZoneInfo("Asia/Kolkata")
+    ).strftime("%d-%m-%Y %H:%M:%S")
 
 
 def load_from_sheet():
     global clients
+
     clients = {}
 
     try:
-        # Start reading from row 2, header row untouched
+        # Read the worksheet while leaving row 1 as the header.
         rows = sheet.get_all_values()
 
         for row in rows[1:]:
@@ -58,24 +80,30 @@ def load_from_sheet():
                 "last_seen": last_seen
             }
 
-    except Exception as e:
-        print("Load error:", e)
+    except Exception as exc:
+        print("Load error:", exc)
         clients = {}
 
 
 def save_to_sheet():
     try:
-        # Read all rows, but do not touch row 1
+        # Read all rows, but do not modify the header row.
         rows = sheet.get_all_values()
 
-        # Map USER INFO from column B to sheet row number
+        # Map USER INFO in column B to its worksheet row number.
         row_map = {}
 
-        for idx, row in enumerate(rows[1:], start=2):
-            if len(row) >= 2:
-                user_info = row[1].strip()
-                if user_info:
-                    row_map[user_info] = idx
+        for row_number, row in enumerate(
+            rows[1:],
+            start=2
+        ):
+            if len(row) < 2:
+                continue
+
+            user_info = row[1].strip()
+
+            if user_info:
+                row_map[user_info] = row_number
 
         for user_info, info in clients.items():
             row_data = [
@@ -86,39 +114,68 @@ def save_to_sheet():
             ]
 
             if user_info in row_map:
-                row_no = row_map[user_info]
-                sheet.update(f"A{row_no}:D{row_no}", [row_data])
-            else:
-                sheet.append_row(row_data)
+                # Existing user: update only columns A–D.
+                row_number = row_map[user_info]
 
-    except Exception as e:
-        print("Save error:", e)
+                sheet.update(
+                    f"A{row_number}:D{row_number}",
+                    [row_data],
+                    value_input_option="USER_ENTERED"
+                )
+
+            else:
+                # New user: force append into the A–D table.
+                # This prevents Google Sheets from selecting F–I.
+                sheet.append_row(
+                    row_data,
+                    value_input_option="USER_ENTERED",
+                    table_range="A:D"
+                )
+
+    except Exception as exc:
+        print("Save error:", exc)
 
 
 # -------- LOAD EXISTING SHEET DATA --------
+
 load_from_sheet()
 
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
 
-    device = data.get("device", "unknown")
-    name = data.get("name", device)
-    event = data.get("event", "heartbeat")
+    device = str(
+        data.get("device", "unknown")
+    ).strip()
 
-    now = now_ist()
+    name = str(
+        data.get("name", device)
+    ).strip()
 
-    # Same USER INFO = overwrite same row
+    event = str(
+        data.get("event", "heartbeat")
+    ).strip()
+
+    if not device:
+        device = "unknown"
+
+    if not name:
+        name = device
+
+    current_time = now_ist()
+
+    # Same USER INFO updates the same stored client.
     if name not in clients or event == "opened":
         clients[name] = {
             "device": device,
-            "login_time": now,
-            "last_seen": now
+            "login_time": current_time,
+            "last_seen": current_time
         }
+
     else:
         clients[name]["device"] = device
-        clients[name]["last_seen"] = now
+        clients[name]["last_seen"] = current_time
 
     save_to_sheet()
 
@@ -127,7 +184,7 @@ def heartbeat():
         "device": device,
         "name": name,
         "event": event,
-        "time": now
+        "time": current_time
     })
 
 
